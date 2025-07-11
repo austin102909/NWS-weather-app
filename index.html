@@ -224,17 +224,11 @@
     [data-theme="dark"] .weather-card .bg-card {
       background: #1f293750;
     }
-    #station-search-section {
+    #station-data-section {
       width: 100%;
       height: calc(100vh - 116px);
       overflow-y: auto;
       padding: 16px;
-    }
-    #time-display {
-      z-index: 35;
-    }
-    #data-view {
-      z-index: 45;
     }
     .back-button {
       color: var(--header-text);
@@ -247,6 +241,18 @@
     }
     #starter-screen.hidden ~ .header #alerts-button {
       display: block;
+    }
+    #data-view {
+      z-index: 45;
+    }
+    #debug-section {
+      max-width: 600px;
+      margin: 0 auto 16px;
+      background: var(--card-bg);
+      padding: 8px;
+      border-radius: 0.375rem;
+      box-shadow: 0 2px 4px var(--shadow);
+      font-size: 0.875rem;
     }
   </style>
 </head>
@@ -272,7 +278,7 @@
     <div class="tab-button active" data-tab="now">Now</div>
     <div class="tab-button" data-tab="hourly">Hourly</div>
     <div class="tab-button" data-tab="7-day">7-Day</div>
-    <div class="tab-button" data-tab="station-search">Station Search</div>
+    <div class="tab-button" data-tab="station-data">Station Data</div>
   </div>
   <div id="starter-screen" class="starter-screen">
     <h1 class="text-2xl font-bold mb-4">Weather App</h1>
@@ -295,27 +301,14 @@
     <div id="now-section" class="tab-content active"></div>
     <div id="hourly-section" class="tab-content"></div>
     <div id="7-day-section" class="tab-content"></div>
-    <div id="station-search-section" class="tab-content">
-      <div id="main-view">
-        <div id="time-display" class="fixed top-5 left-5 text-sm bg-white p-2 rounded-lg shadow-md">
-          Current Time (CDT): Loading...
+    <div id="station-data-section" class="tab-content">
+      <div id="data-view">
+        <div id="debug-section" class="mb-4">
+          <strong>Debug Info:</strong><br>
+          <span id="debug-content">Loading station data...</span>
         </div>
-        <div class="container flex flex-col items-center mt-[15vh] max-w-2xl w-full">
-          <h1 class="text-4xl font-semibold text-gray-800 mb-8 text-center">Synoptic Weather Data</h1>
-          <div class="search-container flex gap-4 w-full max-w-xl mb-8 items-center">
-            <input type="text" id="station-input" class="flex-grow rounded-full px-5 py-2 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" value="KDFW" placeholder="Enter station ID (e.g., KDFW)">
-            <button id="search-button" class="rounded-full px-8 py-2 bg-blue-600 text-white hover:bg-blue-700 transition-colors">Search</button>
-          </div>
-          <div id="debug-section" class="max-w-xl w-full bg-white p-5 rounded-lg shadow-md text-sm break-words">
-            <strong>Debug Info:</strong><br>
-            <span id="debug-content">Enter a station ID and click Search</span>
-          </div>
-        </div>
-      </div>
-      <div id="data-view" class="hidden fixed inset-0 bg-white overflow-y-auto p-10">
         <div id="data-view-header" class="flex items-center mb-8">
-          <span class="back-arrow text-3xl cursor-pointer text-blue-600 hover:text-blue-800 transition-colors mr-5">←</span>
-          <h5 id="data-view-title" class="text-2xl font-semibold text-gray-800">Station: KDFW | Last Updated: Loading...</h5>
+          <h5 id="data-view-title" class="text-2xl font-semibold text-gray-800">Station: Loading... | Last Updated: Loading...</h5>
         </div>
         <div id="data-table-container" class="w-full overflow-x-auto max-h-[400px] overflow-y-auto border border-gray-200 rounded-lg">
           <table id="data-table" class="w-full min-w-[1000px] text-sm border-collapse">
@@ -404,105 +397,109 @@
 
     const SYNOPTIC_API_TOKEN = '81ebbb6ea61247ac85cb88a96d97fcf2';
     const SYNOPTIC_API_BASE_URL = 'https://api.synopticdata.com/v2/';
-    let allObservations = [], allTimestamps = [], currentStationId = 'KDFW';
+    let allObservations = [], allTimestamps = [], currentStationId = null;
     const pressureTendencyCodes = {0:"Rising, then falling",1:"Rising slowly",2:"Rising steadily",3:"Rising quickly",4:"Steady",5:"Falling, then rising",6:"Falling slowly",7:"Falling steadily",8:"Falling quickly"};
-
-    const unitConversions = {
-      'air_temp': v => (v * 9/5 + 32).toFixed(2),
-      'heat_index': v => (v * 9/5 + 32).toFixed(2),
-      'dew_point_temperature_set_1d': v => (v * 9/5 + 32).toFixed(2),
-      'wet_bulb_temperature_set_1': v => (v * 9/5 + 32).toFixed(2),
-      'wet_bulb_temp_set_1d': v => (v * 9/5 + 32).toFixed(2),
-      'wind_speed': v => (v * 2.23694).toFixed(2),
-      'wind_gust': v => (v * 2.23694).toFixed(2),
-      'peak_wind_speed': v => (v * 2.23694).toFixed(2),
-      'altimeter': v => (v * 0.0002953).toFixed(2),
-      'pressure_set_1d': v => (v * 0.01).toFixed(2),
-      'sea_level_pressure_set_1d': v => (v * 0.01).toFixed(2),
-      'precip_accum': v => (v * 0.03937).toFixed(3),
-      'ceiling': v => (v * 3.28084).toFixed(0),
-      'pressure_tendency': v => {
-        const code = Math.floor(v / 1000), hPaChange = (v % 1000) / 10;
-        const sign = code >= 0 && code <= 3 ? '+' : (code >= 5 && code <= 8 ? '-' : '');
-        return `${pressureTendencyCodes[code] || 'Unknown'}: ${sign}${hPaChange.toFixed(1)} hPa`;
-      },
-      'weather_condition_set_1d': v => v || 'N/A',
-      'weather_summary_set_1d': v => v || 'N/A',
-      'wind_cardinal_direction_set_1d': v => v || 'N/A'
-    };
-
-    function toggleViews() {
-      const mainView = $('#main-view'), dataView = $('#data-view');
-      if (dataView.is(':visible')) { dataView.hide(); mainView.show(); }
-      else { mainView.hide(); dataView.show(); }
-    }
-
-    function updateTimeDisplay() {
-      $('#time-display').text(`Current Time (CDT): ${luxon.DateTime.now().setZone('America/Chicago').toFormat('MMMM dd, yyyy hh:mm:ss a')}`);
-    }
 
     function updateDebug(content) {
       $('#debug-content').html(content.replace(/\n/g, '<br>'));
     }
 
     function convertToAmericanUnits(observations, variables) {
-      const converted = {}, lastNonNullValues = {};
-      const excludedVars = ['air_temp_high_6_hour_set_1','air_temp_low_6_hour_set_1','air_temp_high_24_hour_set_1','air_temp_low_24_hour_set_1','precip_accum_one_hour_set_1','precip_accum_three_hour_set_1','precip_accum_six_hour_set_1','precip_accum_24_hour_set_1'];
+      const converted = {}, lastNonNullValues = {}, excludedVars = ['air_temp_high_6_hour_set_1','air_temp_low_6_hour_set_1','air_temp_high_24_hour_set_1','air_temp_low_24_hour_set_1','precip_accum_one_hour_set_1','precip_accum_three_hour_set_1','precip_accum_six_hour_set_1','precip_accum_24_hour_set_1'];
       variables.forEach(v => {
         if (!observations[v] || !Array.isArray(observations[v]) || observations[v].length !== allTimestamps.length) {
           if (!excludedVars.includes(v)) { converted[v] = Array(allTimestamps.length).fill(null); lastNonNullValues[v] = 'N/A'; }
           return;
         }
         let lastNonNull = null;
-        converted[v] = observations[v].map(value => {
+        converted[v] = observations[v].map((value, i) => {
           if (value !== null && value !== '' && !isNaN(parseFloat(value))) {
             lastNonNull = parseFloat(value);
-            return unitConversions[v]?.(lastNonNull) ?? lastNonNull;
+            if (v.includes('air_temp') || v.includes('heat_index') || v.includes('dew_point_temperature_set_1d') || v.includes('wet_bulb_temperature_set_1') || v.includes('wet_bulb_temp_set_1')) {
+              return (lastNonNull * 9/5 + 32).toFixed(2);
+            } else if (v.includes('wind_speed') || v.includes('wind_gust') || v.includes('peak_wind_speed')) {
+              return (lastNonNull * 2.23694).toFixed(2);
+            } else if (v.includes('altimeter')) {
+              return (lastNonNull * 0.0002953).toFixed(2);
+            } else if (v.includes('pressure_set_1d') || v.includes('sea_level_pressure_set_1d')) {
+              return (lastNonNull * 0.01).toFixed(2);
+            } else if (v.includes('precip_accum')) {
+              return (lastNonNull * 0.03937).toFixed(3);
+            } else if (v.includes('ceiling')) {
+              return (lastNonNull * 3.28084).toFixed(0);
+            } else if (v.includes('pressure_tendency')) {
+              const code = Math.floor(lastNonNull / 1000), hPaChange = (lastNonNull % 1000) / 10;
+              const sign = code >= 0 && code <= 3 ? '+' : (code >= 5 && code <= 8 ? '-' : '');
+              return `${pressureTendencyCodes[code] || 'Unknown'}: ${sign}${hPaChange.toFixed(1)} hPa`;
+            }
+            return lastNonNull;
+          } else if ((v === 'weather_condition_set_1d' || v === 'weather_summary_set_1d' || v === 'wind_cardinal_direction_set_1d') && value) {
+            lastNonNull = value;
+            return value;
           }
-          return unitConversions[v]?.(lastNonNull) ?? lastNonNull ?? 'N/A';
+          return lastNonNull !== null && !isNaN(lastNonNull) && !excludedVars.includes(v) ? 
+            (v.includes('air_temp') || v.includes('heat_index') || v.includes('dew_point_temperature_set_1d') || v.includes('wet_bulb_temperature_set_1') || v.includes('wet_bulb_temp_set_1') ? 
+            (lastNonNull * 9/5 + 32).toFixed(2) : v.includes('wind_speed') || v.includes('wind_gust') || v.includes('peak_wind_speed') ? (lastNonNull * 2.23694).toFixed(2) : 
+            v.includes('altimeter') ? (lastNonNull * 0.0002953).toFixed(2) : v.includes('pressure_set_1d') || v.includes('sea_level_pressure_set_1d') ? 
+            (lastNonNull * 0.01).toFixed(2) : v.includes('precip_accum') ? (lastNonNull * 0.03937).toFixed(3) : 
+            v.includes('ceiling') ? (lastNonNull * 3.28084).toFixed(0) : v.includes('pressure_tendency') ? 
+            `${pressureTendencyCodes[Math.floor(lastNonNull / 1000)] || 'Unknown'}: ${(lastNonNull % 1000) / 10 * (Math.floor(lastNonNull / 1000) >= 0 && Math.floor(lastNonNull / 1000) <= 3 ? 1 : (Math.floor(lastNonNull / 1000) >= 5 && Math.floor(lastNonNull / 1000) <= 8 ? -1 : 0)).toFixed(1)} hPa` : 
+            lastNonNull) : (v === 'weather_condition_set_1d' || v === 'weather_summary_set_1d' || v === 'wind_cardinal_direction_set_1d') ? (value || 'N/A') : 'N/A';
         });
-        lastNonNullValues[v] = unitConversions[v]?.(lastNonNull) ?? lastNonNull ?? observations[v][observations[v].length - 1] ?? 'N/A';
+        lastNonNullValues[v] = lastNonNull !== null ? 
+          (v.includes('air_temp') || v.includes('heat_index') || v.includes('dew_point_temperature_set_1d') || v.includes('wet_bulb_temperature_set_1') || v.includes('wet_bulb_temp_set_1') ? 
+          (lastNonNull * 9/5 + 32).toFixed(2) : v.includes('wind_speed') || v.includes('wind_gust') || v.includes('peak_wind_speed') ? (lastNonNull * 2.23694).toFixed(2) : 
+          v.includes('altimeter') ? (lastNonNull * 0.0002953).toFixed(2) : v.includes('pressure_set_1d') || v.includes('sea_level_pressure_set_1d') ? 
+          (lastNonNull * 0.01).toFixed(2) : v.includes('precip_accum') ? (lastNonNull * 0.03937).toFixed(3) : 
+          v.includes('ceiling') ? (lastNonNull * 3.28084).toFixed(0) : v.includes('pressure_tendency') ? 
+          `${pressureTendencyCodes[Math.floor(lastNonNull / 1000)] || 'Unknown'}: ${(lastNonNull % 1000) / 10 * (Math.floor(lastNonNull / 1000) >= 0 && Math.floor(lastNonNull / 1000) <= 3 ? 1 : (Math.floor(lastNonNull / 1000) >= 5 && Math.floor(lastNonNull / 1000) <= 8 ? -1 : 0)).toFixed(1)} hPa` : 
+          (v === 'weather_condition_set_1d' || v === 'weather_summary_set_1d' || v === 'wind_cardinal_direction_set_1d') ? lastNonNull : lastNonNull) : 
+          (v === 'weather_condition_set_1d' || v === 'weather_summary_set_1d' || v === 'wind_cardinal_direction_set_1d') && observations[v][observations[v].length - 1] ? 
+          observations[v][observations[v].length - 1] : 'N/A';
       });
       return { converted, lastNonNullValues };
     }
 
-    function getLastValues(observations, variables, indexLimit = observations.date_time?.length || 0) {
-      const lastValues = {}, excludedVars = ['air_temp_high_6_hour_set_1','air_temp_low_6_hour_set_1','air_temp_high_24_hour_set_1','air_temp_low_24_hour_set_1','precip_accum_one_hour_set_1','precip_accum_three_hour_set_1','precip_accum_six_hour_set_1','precip_accum_24_hour_set_1'];
-      variables.forEach(v => {
+    function updateFixedMeasurementsRow(convertedObservations, sortedVariables, scrollTop) {
+      const tableContainer = $('#data-table-container'), rows = $('#data-table tbody tr');
+      if (!rows.length) return;
+      const rowHeight = $(rows[0]).outerHeight() || 40;
+      const firstVisibleRowIndex = Math.max(0, Math.floor(scrollTop / rowHeight));
+      const latestValues = {};
+      sortedVariables.forEach(v => {
+        latestValues[v] = 'N/A';
+        for (let i = 0; i <= firstVisibleRowIndex && i < convertedObservations[v].length; i++) {
+          if (convertedObservations[v][i] !== 'N/A' && convertedObservations[v][i] !== null) {
+            latestValues[v] = convertedObservations[v][i];
+            break;
+          }
+        }
+      });
+      $('#fixed-measurements-content').html(`<td class="border border-gray-200 p-3">Latest Measurements</td>${sortedVariables.map(v => `<td class="border border-gray-200 p-3">${latestValues[v]}</td>`).join('')}`);
+      $('#fixed-measurements-row').scrollLeft(tableContainer.scrollLeft());
+    }
+
+    function updateSummaryTable(observations) {
+      const excludedVars = ['air_temp_high_6_hour_set_1','air_temp_low_6_hour_set_1','air_temp_high_24_hour_set_1','air_temp_low_24_hour_set_1','precip_accum_one_hour_set_1','precip_accum_three_hour_set_1','precip_accum_six_hour_set_1','precip_accum_24_hour_set_1'];
+      const lastValues = {};
+      excludedVars.forEach(v => {
         lastValues[v] = 'N/A';
-        if (excludedVars.includes(v) && observations[v] && Array.isArray(observations[v])) {
-          for (let i = Math.min(observations[v].length - 1, indexLimit); i >= 0; i--) {
+        if (observations[v] && Array.isArray(observations[v])) {
+          for (let i = observations[v].length - 1; i >= 0; i--) {
             const value = observations[v][i];
             if (value !== null && value !== '' && !isNaN(parseFloat(value))) {
-              lastValues[v] = v.includes('air_temp') ? (parseFloat(value) * 9/5 + 32).toFixed(2) :
-                              v.includes('precip_accum') ? (parseFloat(value) * 0.03937).toFixed(3) : parseFloat(value).toFixed(4);
-              break;
-            }
-          }
-        } else {
-          for (let i = 0; i <= indexLimit && i < observations[v]?.length; i++) {
-            if (observations[v][i] !== 'N/A' && observations[v][i] !== null) {
-              lastValues[v] = observations[v][i];
+              const parsedValue = parseFloat(value);
+              lastValues[v] = v.includes('air_temp') ? (parsedValue * 9/5 + 32).toFixed(2) : 
+                              v.includes('precip_accum') ? (parsedValue * 0.03937).toFixed(3) : parsedValue.toFixed(4);
               break;
             }
           }
         }
       });
-      return lastValues;
-    }
-
-    function updateTables(convertedObservations, sortedVariables, observations, scrollTop) {
-      const tableContainer = $('#data-table-container'), rows = $('#data-table tbody tr');
-      if (!rows.length) return;
-      const rowHeight = $(rows[0]).outerHeight() || 40;
-      const firstVisibleRowIndex = Math.max(0, Math.floor(scrollTop / rowHeight));
-      const lastValues = getLastValues(convertedObservations, sortedVariables, firstVisibleRowIndex);
-      $('#fixed-measurements-content').html(`<td class="border border-gray-200 p-3">Latest Measurements</td>${sortedVariables.map(v => `<td class="border border-gray-200 p-3">${lastValues[v]}</td>`).join('')}`);
-      $('#fixed-measurements-row').scrollLeft(tableContainer.scrollLeft());
-      $('#summary-table-body').html(['air_temp_high_6_hour_set_1','air_temp_low_6_hour_set_1','air_temp_high_24_hour_set_1','air_temp_low_24_hour_set_1','precip_accum_one_hour_set_1','precip_accum_three_hour_set_1','precip_accum_six_hour_set_1','precip_accum_24_hour_set_1'].map(v => {
+      $('#summary-table-body').html(excludedVars.map(v => {
         const label = v.replace('_set_1', '').replace(/_/g, ' ') + (v.includes('air_temp') ? ' (°F)' : v.includes('precip_accum') ? ' (in)' : '');
         const cellClass = v.includes('air_temp') ? 'font-bold text-red-500' : '';
-        return `<tr><td class="border border-gray-200 p-3">${label}</td><td class="${cellClass} border border-gray-200 p-3">${getLastValues(observations, [v])[v]}</td></tr>`;
+        return `<tr><td class="border border-gray-200 p-3">${label}</td><td class="${cellClass} border border-gray-200 p-3">${lastValues[v]}</td></tr>`;
       }).join(''));
     }
 
@@ -512,8 +509,7 @@
         $('#data-table tbody').html('');
         $('#fixed-measurements-content').html('<td class="border border-gray-200 p-3">Latest Measurements</td>');
         $('#summary-table-body').html('');
-        $('#data-view-title').text(`Station: ${currentStationId} | Last Updated: N/A`);
-        toggleViews();
+        $('#data-view-title').text(`Station: ${currentStationId || 'Unknown'} | Last Updated: N/A`);
         return;
       }
       allObservations = station.OBSERVATIONS;
@@ -523,8 +519,7 @@
         $('#data-table tbody').html('');
         $('#fixed-measurements-content').html('<td class="border border-gray-200 p-3">Latest Measurements</td>');
         $('#summary-table-body').html('');
-        $('#data-view-title').text(`Station: ${currentStationId} | Last Updated: N/A`);
-        toggleViews();
+        $('#data-view-title').text(`Station: ${currentStationId || 'Unknown'} | Last Updated: N/A`);
         return;
       }
       const allVariables = Object.keys(allObservations).filter(key => key !== 'date_time');
@@ -550,17 +545,28 @@
         "peak_wind_direction_set_1": "Peak Wind Direction: °"
       };
       $('#data-table thead tr').html(['Timestamp', ...sortedVariables.map(v => officialLabels[v] || v)].map(h => `<th class="border border-gray-200 p-3 bg-gray-800 text-white sticky top-0 z-[100]">${h}</th>`).join(''));
+      $('#fixed-measurements-content').html(`<td class="border border-gray-200 p-3">Latest Measurements</td>${sortedVariables.map(v => `<td class="border border-gray-200 p-3">${lastNonNullValues[v]}</td>`).join('')}`);
       $('#data-table tbody').html(allTimestamps.map((time, index) => {
         const parsedTime = luxon.DateTime.fromISO(time, { zone: 'America/Chicago' }).isValid ? 
           luxon.DateTime.fromISO(time, { zone: 'America/Chicago' }).toFormat('MM/dd/yyyy HH:mm:ss') : '(invalid date)';
         return `<tr class="hover:bg-gray-100"><td class="border border-gray-200 p-3">${parsedTime}</td>${sortedVariables.map(v => `<td class="border border-gray-200 p-3">${convertedObservations[v][index] !== null && convertedObservations[v][index] !== 'N/A' ? convertedObservations[v][index] : 'N/A'}</td>`).join('')}</tr>`;
       }).join(''));
-      $('#data-table-container').off('scroll').on('scroll', function() { updateTables(convertedObservations, sortedVariables, allObservations, $(this).scrollTop()); });
-      updateTables(convertedObservations, sortedVariables, allObservations, 0);
-      toggleViews();
+      $('#data-table-container').off('scroll').on('scroll', function() {
+        updateFixedMeasurementsRow(convertedObservations, sortedVariables, $(this).scrollTop());
+        $('#fixed-measurements-row').scrollLeft($(this).scrollLeft());
+      });
+      updateSummaryTable(allObservations);
     }
 
     function fetchStationData(stationId, startDate, endDate) {
+      if (!stationId) {
+        updateDebug('Error: No station ID provided');
+        $('#data-table tbody').html('');
+        $('#fixed-measurements-content').html('<td class="border border-gray-200 p-3">Latest Measurements</td>');
+        $('#summary-table-body').html('');
+        $('#data-view-title').text(`Station: Unknown | Last Updated: N/A`);
+        return;
+      }
       const formatDate = date => luxon.DateTime.fromJSDate(date).toUTC().toFormat('yyyyMMddHHmm');
       const startFormatted = formatDate(startDate), endFormatted = formatDate(endDate);
       const url = `${SYNOPTIC_API_BASE_URL}stations/timeseries?stid=${stationId}&start=${startFormatted}&end=${endFormatted}&token=${SYNOPTIC_API_TOKEN}&obtimezone=local`;
@@ -575,22 +581,18 @@
             displayStationData(data.STATION[0]);
           } else {
             updateDebug(`API URL: ${url}\nStatus: Failed\nError: Station name invalid\nResponse: ${data.SUMMARY?.RESPONSE_MESSAGE || 'Unknown error'}`);
-            alert('Station name invalid. Check debug info.');
             $('#data-table tbody').html('');
             $('#fixed-measurements-content').html('<td class="border border-gray-200 p-3">Latest Measurements</td>');
             $('#summary-table-body').html('');
             $('#data-view-title').text(`Station: ${stationId} | Last Updated: N/A`);
-            toggleViews();
           }
         },
         error: function(xhr) {
           updateDebug(`API URL: ${url}\nStatus: Failed\nError: Station name invalid\nResponse: ${xhr.responseText || 'N/A'}`);
-          alert('Station name invalid. Check debug info.');
           $('#data-table tbody').html('');
           $('#fixed-measurements-content').html('<td class="border border-gray-200 p-3">Latest Measurements</td>');
           $('#summary-table-body').html('');
           $('#data-view-title').text(`Station: ${stationId} | Last Updated: N/A`);
-          toggleViews();
         }
       });
     }
@@ -606,24 +608,6 @@
       document.documentElement.setAttribute('data-theme', savedTheme);
       elements.themeToggle = document.getElementById('theme-toggle');
       elements.themeToggle.checked = savedTheme === 'dark';
-
-      // Synoptic initialization
-      let currentEndDate = new Date(), currentStartDate = new Date(currentEndDate.getTime() - 3 * 24 * 60 * 60 * 1000);
-      updateTimeDisplay();
-      setInterval(updateTimeDisplay, 1000);
-      $('#search-button').on('click', () => {
-        const stationId = $('#station-input').val().trim().toUpperCase();
-        if (stationId) {
-          currentEndDate = new Date();
-          currentStartDate = new Date(currentEndDate.getTime() - 3 * 24 * 60 * 60 * 1000);
-          fetchStationData(stationId, currentStartDate, currentEndDate);
-        } else {
-          updateDebug('Status: Failed\nError: Station ID cannot be empty');
-          alert('Please enter a station ID.');
-        }
-      });
-      $('#station-input').on('keypress', e => { if (e.which === 13) $('#search-button').click(); });
-      $('#data-view-header .back-arrow').on('click', toggleViews);
 
       // Main app functions
       const fetchWithRetry = async (url, retries = 3) => {
@@ -709,7 +693,8 @@
         const stationsResponse = await fetchWithRetry(stationsUrl);
         const stationsData = await stationsResponse.json();
         if (!stationsData.features?.length) throw new Error('No stations found');
-        const stationId = stationsData.features[0].properties.stationIdentifier;
+        currentStationId = stationsData.features[0].properties.stationIdentifier;
+        const stationId = currentStationId;
         const obsResponse = await fetchWithRetry(`${NWS_API}/stations/${stationId}/observations/latest`);
         const obsData = await obsResponse.json();
         if (!obsData.properties) throw new Error('No observation data');
@@ -875,7 +860,7 @@
           }
           elements.alertsCount.textContent = alerts.length;
           elements.alertsCount.classList.toggle('hidden', alerts.length === 0);
-          elements.alertsButton.classList.toggle('hidden', alerts.length === 0);
+          elements.alertsButton.classList.remove('hidden');
           elements.alertsList.innerHTML = alerts.length ? alerts.map((alert, index) => `
             <div class="alert-item">
               <p class="alert-title" data-alert-index="${index}">${alert.properties.headline || alert.properties.event || 'Alert'}</p>
@@ -968,9 +953,15 @@
           document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
           document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
           button.classList.add('active');
-          document.getElementById(`${button.dataset.tab}-section`)?.classList.add('active');
+          const tabSection = document.getElementById(`${button.dataset.tab}-section`);
+          tabSection?.classList.add('active');
           elements.settings.classList.remove('active');
           elements.alerts.classList.remove('active');
+          if (button.dataset.tab === 'station-data' && currentStationId) {
+            const endDate = new Date();
+            const startDate = new Date(endDate.getTime() - 3 * 24 * 60 * 60 * 1000);
+            fetchStationData(currentStationId, startDate, endDate);
+          }
         });
       });
 
