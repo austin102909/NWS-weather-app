@@ -461,10 +461,10 @@
         'precip_accum_six_hour_set_1', 'precip_accum_24_hour_set_1'
       ];
       const unitMap = {
-        temperature: ['air_temp_set_1', 'heat_index_set_1d', 'dew_point_temperature_set_1d', 'wet_bulb_temperature_set_1', 'wet_bulb_temp_set_1d'],
+        temperature: ['air_temp_set_1', 'heat_index_set_1d', 'dew_point_temperature_set_1d', 'wet_bulb_temperature_set_1', 'wet_bulb_temp_set_1d', 'air_temp_high_24_hour_set_1', 'air_temp_low_24_hour_set_1'],
         wind: ['wind_speed_set_1', 'wind_gust_set_1', 'peak_wind_speed_set_1'],
         pressure: ['pressure_set_1d', 'sea_level_pressure_set_1d'],
-        precip: ['precip_accum'],
+        precip: ['precip_accum', 'precip_accum_24_hour_set_1'],
         visibility: ['visibility_set_1'],
         ceiling: ['ceiling_set_1'],
         altimeter: ['altimeter_set_1'],
@@ -492,7 +492,7 @@
         converted[v] = observations[v].map((value, i) => {
           if (value !== null && value !== '' && !isNaN(parseFloat(value))) {
             lastNonNull = parseFloat(value);
-            if (unitMap.temperature.includes(v)) return `${(lastNonNull * 9/5 + 32).toFixed(2)}°F`;
+            if (unitMap.temperature.includes(v)) return `${(lastNonNull * 9/5 + 32).toFixed(1)}°F`;
             if (unitMap.wind.includes(v)) return `${(lastNonNull * 2.23694).toFixed(2)}mph`;
             if (v.includes('altimeter')) return `${(lastNonNull * 0.0002953).toFixed(2)}inHg`;
             if (unitMap.pressure.includes(v)) return `${(lastNonNull * 0.01).toFixed(2)}mbar`;
@@ -511,7 +511,7 @@
             return value;
           }
           if (lastNonNull !== null && !isNaN(lastNonNull) && !excludedVars.includes(v)) {
-            if (unitMap.temperature.includes(v)) return `${(lastNonNull * 9/5 + 32).toFixed(2)}°F`;
+            if (unitMap.temperature.includes(v)) return `${(lastNonNull * 9/5 + 32).toFixed(1)}°F`;
             if (unitMap.wind.includes(v)) return `${(lastNonNull * 2.23694).toFixed(2)}mph`;
             if (v.includes('altimeter')) return `${(lastNonNull * 0.0002953).toFixed(2)}inHg`;
             if (unitMap.pressure.includes(v)) return `${(lastNonNull * 0.01).toFixed(2)}mbar`;
@@ -529,7 +529,7 @@
           return unitMap.text.includes(v) && value ? value : '';
         });
         lastNonNullValues[v] = lastNonNull !== null ? (
-          unitMap.temperature.includes(v) ? `${(lastNonNull * 9/5 + 32).toFixed(2)}°F` :
+          unitMap.temperature.includes(v) ? `${(lastNonNull * 9/5 + 32).toFixed(1)}°F` :
           unitMap.wind.includes(v) ? `${(lastNonNull * 2.23694).toFixed(2)}mph` :
           v.includes('altimeter') ? `${(lastNonNull * 0.0002953).toFixed(2)}inHg` :
           unitMap.pressure.includes(v) ? `${(lastNonNull * 0.01).toFixed(2)}mbar` :
@@ -570,7 +570,7 @@
             const value = observations[v][i];
             if (value !== null && value !== '' && !isNaN(parseFloat(value))) {
               const parsedValue = parseFloat(value);
-              lastValues[v] = v.includes('air_temp') ? `${(parsedValue * 9/5 + 32).toFixed(2)}°F` :
+              lastValues[v] = v.includes('air_temp') ? `${(parsedValue * 9/5 + 32).toFixed(1)}°F` :
                               v.includes('precip_accum') ? `${(parsedValue * 0.03937).toFixed(3)}in` : `${parsedValue.toFixed(4)}`;
               break;
             }
@@ -879,11 +879,10 @@
           if (synopticSuccess && allObservations && allTimestamps.length) {
             const observations = allObservations;
             const timestamps = allTimestamps;
-            const latestIndex = timestamps.length - 1;
             const variables = [
               'air_temp_set_1', 'relative_humidity_set_1', 'heat_index_set_1d', 'dew_point_temperature_set_1d',
               'visibility_set_1', 'wind_speed_set_1', 'wind_gust_set_1', 'wind_cardinal_direction_set_1d',
-              'pressure_set_1d'
+              'pressure_set_1d', 'precip_accum_24_hour_set_1', 'air_temp_high_24_hour_set_1', 'air_temp_low_24_hour_set_1'
             ];
             const { lastNonNullValues } = convertToAmericanUnits(observations, variables);
             displayData = {
@@ -895,11 +894,20 @@
               windDirection: lastNonNullValues['wind_cardinal_direction_set_1d'] || nwsData.windDirection,
               windGust: lastNonNullValues['wind_gust_set_1'] || nwsData.windGust,
               pressure: lastNonNullValues['pressure_set_1d'] || nwsData.pressure,
-              lastUpdated: timestamps[latestIndex] ? new Date(timestamps[latestIndex]).toLocaleString() : nwsData.lastUpdated
+              precip24Hour: lastNonNullValues['precip_accum_24_hour_set_1'] || 'N/A',
+              tempHigh24Hour: lastNonNullValues['air_temp_high_24_hour_set_1'] || 'N/A',
+              tempLow24Hour: lastNonNullValues['air_temp_low_24_hour_set_1'] || 'N/A',
+              lastUpdated: timestamps[0] ? luxon.DateTime.fromISO(timestamps[0], { zone: 'America/Chicago' }).toFormat('MM/dd/yyyy h:mm a') : nwsData.lastUpdated
             };
             lastUpdated = displayData.lastUpdated;
           } else {
             console.warn('Using NWS data as fallback for "Now" section due to Synoptic data failure');
+            displayData = {
+              ...nwsData,
+              precip24Hour: 'N/A',
+              tempHigh24Hour: 'N/A',
+              tempLow24Hour: 'N/A'
+            };
           }
 
           const hourlyData = await fetchHourlyForecast(wfo, gridX, gridY);
@@ -926,6 +934,9 @@
                   <p class="text-base">Wind: <span style="color: var(--accent-color)">${displayData.windSpeed} ${displayData.windDirection}</span></p>
                   <p class="text-base">Wind Gust: <span style="color: var(--highlight-color)">${displayData.windGust}</span></p>
                   <p class="text-base">Pressure: <span style="color: var(--accent-color)">${displayData.pressure}</span></p>
+                  <p class="text-base">24hr Precip: <span style="color: var(--highlight-color)">${displayData.precip24Hour}</span></p>
+                  <p class="text-base">24hr High: <span style="color: var(--accent-color)">${displayData.tempHigh24Hour}</span></p>
+                  <p class="text-base">24hr Low: <span style="color: var(--highlight-color)">${displayData.tempLow24Hour}</span></p>
                 </div>
               </div>
               <div class="bg-card p-3 rounded-lg shadow mt-4">
